@@ -165,6 +165,9 @@ def process(image, model):
     ax.set_axis_off()
     ax.set_title('Sudoku')
     plt.tight_layout()
+    
+    plt.savefig("tmp.png")
+    img_postprocessed = cv2.imread("tmp.png", 0)
  
     plt.show()
     plt.close()
@@ -210,6 +213,12 @@ def process(image, model):
         cv2.waitKey(0)
         cv2.destroyAllWindows()
     """
+    
+    # sudoku_pic -> original picture, 
+    # img_postprocessed -> black-white image with marked lines and grid corners
+    # projected_img -> original picture with applied perspective projection
+    # cells -> list of cropped out cell
+    return (sudoku_pic, img_postprocessed, projected_img, cells)
  
 def main():
     gui = GUI("Sudoku recognizer", 800, 800, False)
