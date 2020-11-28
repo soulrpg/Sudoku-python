@@ -16,7 +16,7 @@ from tensorflow.keras.models import load_model
 from gui import *
  
 def getPrediction(image, model):
-    result = []
+
     ## Preparing img so it can be used by model
     #img = cv2.cvtColor(np.asarray(image), cv2.COLOR_BGR2GRAY)
     img = cv2.bitwise_not(image.copy())
@@ -39,10 +39,8 @@ def getPrediction(image, model):
     predictions = model.predict(img2)
     classIndex = model.predict_classes(img2)
     probabilityValue = np.amax(predictions)
-    result.append(predictions)
-    result.append([classIndex, probabilityValue])
-    print(result)
-    return result
+
+    return predictions, classIndex, probabilityValue
  
  
 # Checks if two lines [[x1, y1], [x2, y2]] intersect. Returns a point [x, y] or None
@@ -214,10 +212,23 @@ def process(image, model):
         cv2.destroyAllWindows()
     """
     
+    numbers = []
+    for i in range(9):
+        numbers.append([])
+        for j in range(9):
+            cell = cells[i*9+j]
+            if cell == []:
+                numbers[i].append(-1)
+            else:
+                numbers[i].append(getPrediction(cell, model)[1][0])
+    for n in numbers:
+        print(n)
+    
     # sudoku_pic -> original picture, 
     # img_postprocessed -> black-white image with marked lines and grid corners
     # projected_img -> original picture with applied perspective projection
     # cells -> list of cropped out cell
+    # numbers -> digits that are recognized
     return (sudoku_pic, img_postprocessed, projected_img, cells)
  
 def main():
