@@ -81,12 +81,13 @@ def number_inside(cell, percent):
  
 def process(image, model):
     sudoku_pic = image
-    blurred = cv2.GaussianBlur(sudoku_pic, (13, 13), 0)
+    blurred = cv2.GaussianBlur(sudoku_pic, (11, 11), 0)
     binary = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_MEAN_C | cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                    cv2.THRESH_BINARY, 5, 2)
     binary = cv2.bitwise_not(binary)
-    # kernel = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]], np.uint8)
-    # binary = cv2.dilate(binary, kernel)
+    kernel = np.array([[0, 0, 1, 0, 0], [0, 1, 1, 1, 0], [1, 1, 1, 1, 1], [0, 1, 1, 1, 0], [0, 0, 1, 0, 0]], np.uint8)
+    binary = cv2.dilate(binary, kernel)
+    binary = cv2.dilate(binary, kernel)
  
     tested_angles = np.linspace(-np.pi / 2, np.pi / 2, 720)
     h, theta, d = hough_line(binary, theta=tested_angles)
@@ -200,13 +201,13 @@ def process(image, model):
     for i in range(len(cells) - 1, -1, -1):
         if not (number_inside(cells[i], 0.1)):
             cells.pop(i)     
- 
+    """
     for cell in cells:
         cv2.imshow("Number", cell)
         getPrediction(cell, model)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
- 
+    """
  
 def main():
     model = load_model('Model1.h5')
