@@ -12,6 +12,8 @@ from skimage.transform import hough_line, hough_line_peaks
 import os
 import math
 from tensorflow.keras.models import load_model
+
+from gui import *
  
 def getPrediction(image, model):
     result = []
@@ -210,6 +212,7 @@ def process(image, model):
     """
  
 def main():
+    gui = GUI("Sudoku recognizer", 800, 800, False)
     model = load_model('Model1.h5')
     path = os.getcwd()
     os.chdir(path + "//sudoku_pics//")
