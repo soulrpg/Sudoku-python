@@ -14,12 +14,33 @@ import math
 from tensorflow.keras.models import load_model
 
 from gui import *
+
+
+# ----PREPRO BIG IMAGE----#
+block_size_big = 41
+block_size_webcam_big = 21
+mean_sub_big = 15
+mean_sub_webcam_big = 5
+
+# display_prepro_big = True
+display_prepro_big = False
+
+# ----GRID COUNTOURS----#
+ratio_lim = 2
+smallest_area_allow = 75000
+approx_poly_coef = 0.1
+
+# ----GRID UPDATE AND SIMILARITY----#
+lim_apparition_not_solved = 12
+lim_apparition_solved = 60
+same_grid_dist_ratio = 0.05
+target_h_grid, target_w_grid = 450, 450
  
 def getPrediction(image, model):
 
     ## Preparing img so it can be used by model
-    #img = cv2.cvtColor(np.asarray(image), cv2.COLOR_BGR2GRAY)
-    img = cv2.bitwise_not(image.copy())
+    img = cv2.cvtColor(np.asarray(image), cv2.COLOR_BGR2GRAY)
+    #img = cv2.bitwise_not(image.copy())
     cutx = int(0.15 * img.shape[1])
     cuty = int(0.15 * img.shape[0])
     for x in range(img.shape[1]):
@@ -41,6 +62,151 @@ def getPrediction(image, model):
     probabilityValue = np.amax(predictions)
 
     return predictions, classIndex, probabilityValue
+
+def extract_cells(projected_img, model):
+    # Cropping out cells from grid
+    x_diff = projected_img.shape[1] // 9
+    y_diff = projected_img.shape[0] // 9
+    cellso = []
+    cells = []
+    for i in range(9):
+        for j in range(9):
+            lower_bound_y = i * y_diff
+            upper_bound_y = (i + 1) * y_diff
+            lower_bound_x = j * x_diff
+            upper_bound_x = (j + 1) * x_diff
+
+            cell = projected_img[lower_bound_y:upper_bound_y, lower_bound_x:upper_bound_x]
+            cv2.imshow("first", cell)
+            gray = cv2.cvtColor(cell, cv2.COLOR_BGR2GRAY)
+            gray = cv2.GaussianBlur(gray, (3, 3), 0)
+            gray = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C | cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                         cv2.THRESH_BINARY, 5, 2)
+            gray = cv2.bitwise_not(gray)
+            cv2.imshow("second", gray)
+            cellso.append(cell)
+            cells.append(gray)
+
+    # TODO Trzeba zrobic wykrywanie czy w komorce jest liczba
+    for i in range(len(cells) - 1, -1, -1):
+        if not (number_inside(cells[i], 0.1)):
+            cells[i] = []
+            cellso[i] = []
+    """
+    for cell in cells:
+        cv2.imshow("Number", cell)
+        getPrediction(cell, model)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+    """
+
+    numbers = []
+    for i in range(9):
+        numbers.append([])
+        for j in range(9):
+            cell = cellso[i * 9 + j]
+            if cell == []:
+                numbers[i].append(-1)
+            else:
+                numbers[i].append(getPrediction(cell, model)[1][0])
+    for n in numbers:
+        print(n)
+
+
+def find_corners(contour):
+    top_left = [10000, 10000]
+    top_right = [0, 10000]
+    bottom_right = [0, 0]
+    bottom_left = [10000, 0]
+    mean_x = np.mean(contour[:, :, 0])
+    mean_y = np.mean(contour[:, :, 1])
+
+    for j in range(len(contour)):
+        x, y = contour[j][0]
+        if x > mean_x:  # On right
+            if y > mean_y:  # On bottom
+                bottom_right = [x, y]
+            else:
+                top_right = [x, y]
+        else:
+            if y > mean_y:  # On bottom
+                bottom_left = [x, y]
+            else:
+                top_left = [x, y]
+    return [top_left, top_right, bottom_right, bottom_left]
+
+class GridDetector:
+    def __init__(self, display=False):
+        self.__display = display
+
+    def extract_grids(self, frame):
+        # Get a threshed image which emphasize lines
+        threshed_img = self.thresh_img(frame)
+
+        # Look for grids corners
+        grids_corners_list = self.look_for_grids_corners(threshed_img)
+
+        # Use grids corners to unwrap img !
+        unwraped_grid_list, transfo_matrix = self.unwrap_grids(frame, grids_corners_list)
+        return unwraped_grid_list, grids_corners_list, transfo_matrix
+
+    @staticmethod
+    def thresh_img(frame):
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        gray_enhance = (gray - gray.min()) * int(255 / (gray.max() - gray.min()))
+
+        blurred = cv2.GaussianBlur(gray_enhance, (5, 5), 0)
+        thresh = cv2.adaptiveThreshold(blurred, 255,
+                                       cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY,
+                                       block_size_big, mean_sub_big)
+
+        thresh_not = cv2.bitwise_not(thresh)
+
+        kernel_close = np.ones((5, 5), np.uint8)
+        closing = cv2.morphologyEx(thresh_not, cv2.MORPH_CLOSE, kernel_close)  # Delete space between line
+        dilate = cv2.morphologyEx(closing, cv2.MORPH_DILATE, kernel_close)  # Delete space between line
+        return dilate
+
+    @staticmethod
+    def unwrap_grids(frame, points_grids):
+        undistorted_grids = []
+        transfo_matrix_list = []
+        for points_grid in points_grids:
+            final_pts = np.array(
+                [[0, 0], [target_w_grid - 1, 0],
+                 [target_w_grid - 1, target_h_grid - 1], [0, target_h_grid - 1]],
+                dtype=np.float32)
+            transfo_mat = cv2.getPerspectiveTransform(points_grid, final_pts)
+            undistorted_grids.append(cv2.warpPerspective(frame, transfo_mat, (target_w_grid, target_h_grid)))
+            transfo_matrix_list.append(np.linalg.inv(transfo_mat))
+        return undistorted_grids, transfo_matrix_list
+
+    @staticmethod
+    def look_for_grids_corners(img_lines):
+        contours, _ = cv2.findContours(img_lines, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        best_contours = []
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+        biggest_area = cv2.contourArea(contours[0])
+
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < smallest_area_allow:
+                break
+            if area > biggest_area / ratio_lim:
+                peri = cv2.arcLength(cnt, True)
+                approx = cv2.approxPolyDP(cnt, approx_poly_coef * peri, True)
+                if len(approx) == 4:
+                    best_contours.append(approx)
+
+        corners = []
+        for best_contour in best_contours:
+            corners.append(find_corners(best_contour))
+
+        return np.array(corners, dtype=np.float32)
+
+
  
  
 # Checks if two lines [[x1, y1], [x2, y2]] intersect. Returns a point [x, y] or None
@@ -203,7 +369,7 @@ def process(image, model):
     # TODO Trzeba zrobic wykrywanie czy w komorce jest liczba
     for i in range(len(cells) - 1, -1, -1):
         if not (number_inside(cells[i], 0.1)):
-            cells.pop(i)     
+            cells[i]=[]
     """
     for cell in cells:
         cv2.imshow("Number", cell)
@@ -240,8 +406,18 @@ def main():
     print(filenames)
     for filename in filenames:
         print(filename)
-        img = cv2.imread(filename, 0)
-        process(img, model)
+
+        im = cv2.imread(filename)
+        #cv2.imshow("im", im)
+        detector = GridDetector()
+        res_grids_final, _, _ = detector.extract_grids(im)
+        if res_grids_final is not None:
+            for (i, im_grid) in enumerate(res_grids_final):
+                cv2.imshow('grid_final_{}'.format(i), im_grid)
+                cv2.imwrite('images_test/grid_cut_{}.jpg'.format(i), im_grid)
+                extract_cells(im_grid, model)
+        cv2.waitKey()
+        #process(img, model)
  
  
 if __name__ == '__main__':
