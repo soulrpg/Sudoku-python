@@ -26,7 +26,7 @@ class AlgoManager():
         # Dodaje do listy pics obrazek wejsciowy
         self.pics.append(self.im)
         self.result = None
-        self.res_grid_final, grid_corners, _ = self.detector.extract_grids(self.im)
+        self.res_grid_final, grid_corners, _ = self.detector.extract_grid(copy.copy(self.im))
         # Dodaje do listy obrazek z narysowanym konturem
         self.pics.append(self.printContourOn(self.im, grid_corners))
         
@@ -67,12 +67,13 @@ class AlgoManager():
     # Metoda naklada na wejsciowy obrazek kontur
     def printContourOn(self, im, grid_corners):
         ax = plt.gca()
+        im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
         ax.imshow(im)
         origin = np.array((0, im.shape[1]))
-        ax.plot(grid_corners[0][0], grid_corners[0][1], 'bo')
-        ax.plot(grid_corners[1][0], grid_corners[1][1], 'bo')
-        ax.plot(grid_corners[2][0], grid_corners[2][1], 'bo')
-        ax.plot(grid_corners[3][0], grid_corners[3][1], 'bo')
+        ax.plot(grid_corners[0][0], grid_corners[0][1], 'ro')
+        ax.plot(grid_corners[1][0], grid_corners[1][1], 'ro')
+        ax.plot(grid_corners[2][0], grid_corners[2][1], 'ro')
+        ax.plot(grid_corners[3][0], grid_corners[3][1], 'ro')
         ax.set_xlim(origin)
         ax.set_ylim((im.shape[0], 0))
         ax.set_axis_off()
@@ -112,45 +113,28 @@ class AlgoManager():
         return self.result
 
 
-# ----PREPRO BIG IMAGE----#
-block_size_big = 41
-block_size_webcam_big = 21
-mean_sub_big = 15
-mean_sub_webcam_big = 5
-
-# display_prepro_big = True
-display_prepro_big = False
-
-# ----GRID COUNTOURS----#
-ratio_lim = 2
 smallest_area_allow = 75000
-approx_poly_coef = 0.1
 
-# ----GRID UPDATE AND SIMILARITY----#
-lim_apparition_not_solved = 12
-lim_apparition_solved = 60
-same_grid_dist_ratio = 0.05
 target_h_grid, target_w_grid = 450, 450
 
 class GridDetector:
-    def __init__(self, display=False):
-        self.__display = display
+    def __init__(self):
+        pass
 
-    def extract_grids(self, frame):
-        # Get a threshed image which emphasize lines
+    def extract_grid(self, frame):
+        # Image preprocessing
         threshed_img = self.thresh_img(frame)
 
-        # Look for grids corners
+        # Look for grid corners, returns biggest contours with 4 angles
         grid_corners = self.look_for_grids_corners(threshed_img)
         if grid_corners is None:
             return None
             
-        # Use grids corners to unwrap img !
-        unwraped_grid_list, transfo_matrix = self.unwrap_grids(frame, grid_corners)
-        return unwraped_grid_list, grid_corners, transfo_matrix
+        # Use grid projection for better cells cutting
+        projected_img, transfo_matrix = self.perspective_projection(frame, grid_corners)
+        return projected_img, grid_corners, transfo_matrix
 
-    @staticmethod
-    def thresh_img(frame):
+    def thresh_img(self, frame):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
         gray_enhance = (gray - gray.min()) * int(255 / (gray.max() - gray.min()))
@@ -158,30 +142,28 @@ class GridDetector:
         blurred = cv2.GaussianBlur(gray_enhance, (5, 5), 0)
         thresh = cv2.adaptiveThreshold(blurred, 255,
                                        cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY,
-                                       block_size_big, mean_sub_big)
+                                       41, 15)
 
         thresh_not = cv2.bitwise_not(thresh)
 
-        kernel_close = np.ones((5, 5), np.uint8)
-        closing = cv2.morphologyEx(thresh_not, cv2.MORPH_CLOSE, kernel_close)  # Delete space between line
-        dilate = cv2.morphologyEx(closing, cv2.MORPH_DILATE, kernel_close)  # Delete space between line
+        kernel = np.ones((5, 5), np.uint8)
+        closing = cv2.morphologyEx(thresh_not, cv2.MORPH_CLOSE, kernel) 
+        dilate = cv2.morphologyEx(closing, cv2.MORPH_DILATE, kernel) 
         return dilate
 
-    @staticmethod
-    def unwrap_grids(frame, points_grid):
+    def perspective_projection(self, frame, points_grid):
         final_pts = np.array(
             [[0, 0], [target_w_grid - 1, 0],
              [target_w_grid - 1, target_h_grid - 1], [0, target_h_grid - 1]],
             dtype=np.float32)
         print(points_grid)
         transfo_mat = cv2.getPerspectiveTransform(points_grid.astype(np.float32), final_pts)
-        undistorted_grid = cv2.warpPerspective(frame, transfo_mat, (target_w_grid, target_h_grid))
+        projected_img = cv2.warpPerspective(frame, transfo_mat, (target_w_grid, target_h_grid))
         transfo_matrix = np.linalg.inv(transfo_mat)
-        return undistorted_grid, transfo_matrix
+        return projected_img, transfo_matrix
 
-    @staticmethod
-    def look_for_grids_corners(img_lines):
-        contours, _ = cv2.findContours(img_lines, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    def look_for_grids_corners(self, processed_img):
+        contours, _ = cv2.findContours(processed_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         best_contour = None
         contours = sorted(contours, key=cv2.contourArea, reverse=True)
 
@@ -191,13 +173,12 @@ class GridDetector:
             area = cv2.contourArea(cnt)
             if area < smallest_area_allow:
                 break
-            if area > biggest_area / ratio_lim:
+            if area > biggest_area / 2:
                 peri = cv2.arcLength(cnt, True)
-                approx = cv2.approxPolyDP(cnt, approx_poly_coef * peri, True)
+                approx = cv2.approxPolyDP(cnt, 0.1 * peri, True)
                 if len(approx) == 4:
                     best_contour = approx
-        return np.array([best_contour[0][0], best_contour[3][0], best_contour[2][0], best_contour[1][0]])
-
+                    return np.array([best_contour[0][0], best_contour[3][0], best_contour[2][0], best_contour[1][0]])
 
 def PreparePrediction(image, show = False):
     if show:
@@ -207,7 +188,7 @@ def PreparePrediction(image, show = False):
     gray_ench = cv2.GaussianBlur(gray, (5, 5), 0)
     img = cv2.adaptiveThreshold(gray_ench, 255,
                                       cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY,
-                                      block_size_big, mean_sub_big)
+                                      41, 15)
     # img = cv2.bitwise_not(image)
     #img2 = cv2.resize(img, (28, 28))
     if show:
@@ -217,15 +198,17 @@ def PreparePrediction(image, show = False):
 
     #img2 = img2.reshape(1, 28, 28, 1)
 
+    # TA CZESC NIE JEST NARAZIE UZYWANA
     contours, hierarchy = cv2.findContours(img, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
     for cnt in contours:
         if cv2.contourArea(cnt) > 0:
             [x, y, w, h] = cv2.boundingRect(cnt)
             roi = img[y:y+h, x:x+w]
-            cv2.imshow('Poczatek', image)
-            cv2.imshow("wycieta", roi)
-    cv2.waitKey(0)
+            if show:
+                cv2.imshow('Poczatek', image)
+                cv2.imshow("wycieta", roi)
+                cv2.waitKey(0)
     return cv2.resize(img, (28, 28)).reshape(1, 28, 28, 1)
 
 def getPrediction(image, model):
