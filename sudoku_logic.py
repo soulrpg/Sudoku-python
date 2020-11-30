@@ -20,7 +20,7 @@ class AlgoManager():
         #cv2.imshow("img", self.im)
         #cv2.waitKey(0)
         #cv2.destroyAllWindows()
-        self.model = load_model('Model1.h5')
+        self.model = load_model('Model1.h5', compile=False)
         self.detector = GridDetector()
         self.pics = []
         # Dodaje do listy pics obrazek wejsciowy
@@ -197,32 +197,45 @@ class GridDetector:
                 if len(approx) == 4:
                     best_contour = approx
         return np.array([best_contour[0][0], best_contour[3][0], best_contour[2][0], best_contour[1][0]])
- 
+
+
+def PreparePrediction(image, show = False):
+    if show:
+        cv2.imshow('Whited', image)
+
+    gray = cv2.cvtColor(np.asarray(image), cv2.COLOR_BGR2GRAY)
+    gray_ench = cv2.GaussianBlur(gray, (5, 5), 0)
+    img = cv2.adaptiveThreshold(gray_ench, 255,
+                                      cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY,
+                                      block_size_big, mean_sub_big)
+    # img = cv2.bitwise_not(image)
+    #img2 = cv2.resize(img, (28, 28))
+    if show:
+        cv2.imshow('Prepared', img)
+        cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+
+    #img2 = img2.reshape(1, 28, 28, 1)
+
+    contours, hierarchy = cv2.findContours(img, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+
+    for cnt in contours:
+        if cv2.contourArea(cnt) > 0:
+            [x, y, w, h] = cv2.boundingRect(cnt)
+            roi = img[y:y+h, x:x+w]
+            cv2.imshow('Poczatek', image)
+            cv2.imshow("wycieta", roi)
+    cv2.waitKey(0)
+    return cv2.resize(img, (28, 28)).reshape(1, 28, 28, 1)
+
 def getPrediction(image, model):
 
     ## Preparing img so it can be used by model
-    img = cv2.cvtColor(np.asarray(image), cv2.COLOR_BGR2GRAY)
-    #img = cv2.bitwise_not(image.copy())
-    cutx = int(0.15 * img.shape[1])
-    cuty = int(0.15 * img.shape[0])
-    for x in range(img.shape[1]):
-        for y in range(img.shape[0]):
-            if (x < cutx or y < cuty):
-                img[y][x] = 255
-                img[-y][x] = 255
-                img[y][-x] = 255
-                img[-y][-x] = 255
-    #img = img[cuty:img.shape[0] - cuty, cutx:img.shape[1] - cutx]
-    #cv2.imshow('Whited', img)
-    img2 = cv2.resize(img, (28, 28))
-    #cv2.imshow('Prepared', img2)
-    #cv2.waitKey(0)
-    #cv2.destroyAllWindows()
-    
-    img2 = img2.reshape(1, 28, 28, 1)
+    img = PreparePrediction(image)
+
     ## Using model
-    predictions = model.predict(img2)
-    classIndex = model.predict_classes(img2)
+    predictions = model.predict(img)
+    classIndex = model.predict_classes(img)
     probabilityValue = np.amax(predictions)
 
     return predictions, classIndex, probabilityValue
