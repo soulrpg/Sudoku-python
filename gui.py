@@ -39,6 +39,8 @@ class GUI:
         self.filenameEntry.pack(side = tk.LEFT)
         self.startButton = ttk.Button(self.topFrame, text="Start", command=lambda: self.start_clicked())
         self.startButton.pack(side = tk.RIGHT, padx=50)
+        self.testButton = ttk.Button(self.topFrame, text="Test All", command=lambda: self.test_clicked())
+        self.testButton.pack(side = tk.RIGHT, padx=50)
         self.imgCanvas = Canvas(self.middleFrame, width=self.canvasWidth, height=self.canvasHeight)#, bg="black")
         self.imgCanvas.pack(side = tk.LEFT, padx=30)
         self.checkButton = ttk.Checkbutton(self.middleFrame, text="Show final only", offvalue = 0, onvalue = 1, command=lambda: self.                              checkButton_change(), variable = self.checkButton_value)
@@ -125,3 +127,23 @@ class GUI:
         self.imgCanvas.create_image(0, 0, anchor=tk.NW, image=self.newPics[3])
         
         self.imgCanvas.update()
+
+    def test_clicked(self):
+        path = os.getcwd()
+        file = open("Results.txt", "a")
+        file.write("Poczatek pliku")
+        file.close()
+        results = []
+        filenames = os.listdir()
+        print(filenames)
+        manager = AlgoManager("", True)
+        for filename in filenames:
+            if filename[-4:] == ".jpg":
+                print(filename)
+                manager.testPicture(filename)
+                result = manager.getResult() * 100
+                results.append(result)
+                print(result)
+                file = open("Results.txt", "a")
+                file.write(filename + " Result:" + str(result) + "\n")
+                file.close()

@@ -15,7 +15,7 @@ from tensorflow.keras.models import load_model
 import copy
 
 class AlgoManager():
-    def __init__(self, filename):
+    def __init__(self, filename, testMode = False):
         self.im = cv2.imread(filename)
         #cv2.imshow("img", self.im)
         #cv2.waitKey(0)
@@ -62,7 +62,68 @@ class AlgoManager():
         #cv2.waitKey(0)
         #cv2.destroyAllWindows()
         return im
-        
+
+    def __init__(self, filename, testMode=False):
+        if testMode:
+            self.model = load_model('Model1.h5', compile=False)
+            return
+        self.im = cv2.imread(filename)
+        # cv2.imshow("img", self.im)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+        self.model = load_model('Model1.h5', compile=False)
+        self.detector = GridDetector()
+        self.pics = []
+        # Dodaje do listy pics obrazek wejsciowy
+        self.pics.append(self.im)
+        self.result = None
+        self.res_grid_final, grid_corners, _ = self.detector.extract_grid(copy.copy(self.im))
+        # Dodaje do listy obrazek z narysowanym konturem
+        self.pics.append(self.printContourOn(self.im, grid_corners))
+
+        if self.res_grid_final is not None:
+            # Dodaje do listy pics obrazek po dokonaniu projekcji
+            self.pics.append(self.res_grid_final)
+            # cv2.imshow("perspective", self.res_grid_final)
+            # cv2.waitKey(0)
+            # cv2.destroyAllWindows()
+            numbers = extract_cells(self.res_grid_final, self.model)
+            self.result = self.compareDigits(numbers, filename)
+            # Dodaje do listy pics obrazek finalny
+            self.pics.append(self.printNumbersOn(copy.copy(self.res_grid_final), numbers, grid_corners))
+
+    def testPicture(self, filename):
+        self.im = cv2.imread(filename)
+        self.detector = GridDetector()
+        self.pics = []
+        self.result = None
+        self.res_grid_final, grid_corners, _ = self.detector.extract_grid(copy.copy(self.im))
+        # Dodaje do listy obrazek z narysowanym konturem
+        if self.res_grid_final is not None:
+            numbers = extract_cells(self.res_grid_final, self.model)
+            self.result = self.compareDigits(numbers, filename)
+
+    # Metoda naklada na wejsciowy obrazek rozpoznane cyfry
+    def printNumbersOn(self, im, numbers, grid_corners):
+        # GRID CORNERS: NW, NE, SE, SW
+        # Odwrotne rzutowanie
+        final_pts = np.array(
+            [[0, 0], [target_w_grid - 1, 0],
+             [target_w_grid - 1, target_h_grid - 1], [0, target_h_grid - 1]],
+            dtype=np.float32)
+        transfo_mat = cv2.getPerspectiveTransform(final_pts, grid_corners.astype(np.float32))
+        for i in range(9):
+            for j in range(9):
+                if numbers[i][j] != -1:
+                    position = (target_w_grid // 9 * j + 30, target_h_grid // 9 * i + 30)
+                    # position = np.dot(np.array(transfo_mat), np.array([target_w_grid//9 * j, target_h_grid//9 * i, 1]))
+                    # position = (int(position[0]), int(position[1]))
+                    cv2.putText(im, str(numbers[i][j]), position, cv2.FONT_HERSHEY_SIMPLEX, 0.75, (255, 0, 0, 255), 2)
+                    # im = cv2.resize(im, (600, 600), interpolation = cv2.INTER_AREA)
+        # cv2.imshow("final", im)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+        return im
         
     # Metoda naklada na wejsciowy obrazek kontur
     def printContourOn(self, im, grid_corners):
@@ -98,7 +159,7 @@ class AlgoManager():
             for j, digit in enumerate(digits[:-1]):
                 if numbers[i][j] != -1:
                     total_digits += 1
-                    print(digit, numbers[i][j])
+                    #print(digit, numbers[i][j])
                     if int(digit) == numbers[i][j]:
                         digits_recognized += 1
         templateFile.close()
@@ -267,8 +328,8 @@ def extract_cells(projected_img, model):
                 numbers[i].append(-1)
             else:
                 numbers[i].append(getPrediction(cell, model)[1][0])
-    for n in numbers:
-        print(n)
+    #for n in numbers:
+        #print(n)
     return numbers
 
 # Returns True if there is number in cell or False if there is not (needs to be upgraded)
@@ -279,14 +340,11 @@ def number_inside(cell, percent):
     middle = cell[searching_y // 2:int(searching_y * 1.5), searching_x // 2:int(searching_x * 1.5)]
     # Count white pixels in the middle
     white_pixels = 0
-    print("Middle")
-    print("Total number of pixels in the middle:", searching_x * searching_y)
+    #print("Middle")
+    #print("Total number of pixels in the middle:", searching_x * searching_y)
     for i in range(0, len(middle)):
         for j in range(0, len(middle[i])):
             if middle[i][j] == 255:
                 white_pixels += 1
-    print("Percent of white pixels:", white_pixels / (searching_x * searching_y))
+    #print("Percent of white pixels:", white_pixels / (searching_x * searching_y))
     return white_pixels / (searching_x * searching_y) > percent
- 
-
- 
